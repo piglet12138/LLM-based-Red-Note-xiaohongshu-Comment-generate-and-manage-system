@@ -15,3 +15,5 @@
 ![image](https://github.com/user-attachments/assets/1793b8ba-f665-4e88-ab8f-d135653cb654)
 ![image](https://github.com/user-attachments/assets/a43c317f-223d-4103-aa8a-687cb52ff3c0)
 相关功能可自行探索，目前还不支持读取图片
+
+3月5日更新： 重新生成评论时可以选择3中预设人格了。支持自定义人格
