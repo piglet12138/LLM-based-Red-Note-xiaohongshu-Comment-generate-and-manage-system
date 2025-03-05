@@ -22,8 +22,8 @@ class CommentManager:
 
     def setup_ai(self):
         """设置AI配置"""
-        os.environ["OPENAI_API_KEY"] = "your_api_key"                          #you can try this but not abuse ds: "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi" #
-        os.environ["OPENAI_BASE_URL"] =  "your_base_url"                       #ds  "https://api.siliconflow.cn/v1"    
+        os.environ["OPENAI_API_KEY"] = "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi"   #ds: "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi" # gpt "sk-mTLkf5SuDNKW2B1D5xQbDljybrG37LVxVQyIDwTz1io9l1iX"
+        os.environ["OPENAI_BASE_URL"] =  "https://api.siliconflow.cn/v1"                       #ds  "https://api.siliconflow.cn/v1"  gpt # "https://api.bianxie.ai/v1"
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
     def generate_comment(self, post_data):
@@ -349,63 +349,147 @@ class CommentManager:
     def process_comment_generation(self, post_id, post_data):
         """处理评论生成过程"""
         while True:
-            print("\n请选择评论生成模式:")
-            print("1. 直接生成评论")
-            print("2. 输入基本观点后生成")
-            print("3. 选择评论人格")
+            # 一级菜单：显示所有可用人格
+            personalities = self.prompt_manager.get_personality_names()
+            print("\n请选择评论人格:")
+            for idx, (key, desc) in enumerate(personalities.items(), 1):
+                print(f"{idx}. {desc}")
+            print(f"{len(personalities) + 1}. 自定义人格")
             print("q. 返回上级菜单")
             
-            mode = input("\n请选择模式 (1/2/3/q): ").strip().lower()
+            choice = input(f"\n请选择 (1-{len(personalities) + 1}/q): ").strip().lower()
             
-            if mode == 'q':
+            if choice == 'q':
                 return
             
-            base_idea = None
-            personality_template = None
+            try:
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(personalities):
+                    # 选择预设人格
+                    personality_key = list(personalities.keys())[choice_num - 1]
+                    personality_template = self.prompt_manager.get_prompt_template(personality_key)
+                    if self.handle_generation_with_template(post_id, post_data, personality_template):
+                        return  # 如果评论被接受，直接返回上级菜单
+                    
+                elif choice_num == len(personalities) + 1:
+                    # 自定义人格
+                    custom_template = self.create_custom_personality()
+                    if custom_template:
+                        if self.handle_generation_with_template(post_id, post_data, custom_template):
+                            # 询问是否保存自定义人格
+                            if input("\n是否保存这个人格配置？(y/n): ").strip().lower() == 'y':
+                                name = input("请为这个人格配置起一个唯一的标识符(英文): ").strip()
+                                self.prompt_manager.add_personality(name, custom_template)
+                                print("\n✅ 人格配置已保存")
+                            return  # 评论被接受后直接返回上级菜单
+                else:
+                    print("\n❌ 无效的选择")
+                    continue
+                
+            except ValueError:
+                print("\n❌ 请输入有效的数字")
+                continue
+
+    def create_custom_personality(self):
+        """创建自定义人格"""
+        print("\n=== 创建自定义人格 ===")
+        print("以下是理中客人格的示例，请参考格式创建您的自定义人格。")
+        
+        try:
+            print("\n【人格名称示例】")
+            print("理中客")
+            print("- 简短且具有代表性的名称")
+            name = input("\n请输入人格名称: ").strip()
+            if not name:
+                print("❌ 名称不能为空")
+                return None
             
-            if mode == '2':
+            print("\n【人格描述示例】")
+            print("基于事实，客观分析，有理有据")
+            print("- 描述这个人格的主要特点和说话风格")
+            description = input("\n请输入人格描述: ").strip()
+            if not description:
+                print("❌ 描述不能为空")
+                return None
+            
+            print("\n【系统提示词示例】")
+            print("你是一个理性客观的评论员，善于分析事物的本质，提供有理有据的见解。")
+            print("- 用于设定AI的基础人格")
+            print("- 建议包含身份定位和行为特征")
+            system_prompt = input("\n请输入系统提示词: ").strip()
+            if not system_prompt:
+                print("❌ 系统提示词不能为空")
+                return None
+            
+            print("\n【用户提示词模板示例】")
+            print("""请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+1. 评论客观理性，有理有据
+2. 从多个角度分析问题
+3. 评论可以稍长，但不超过50字
+4. 使用专业但通俗的语言
+
+帖子信息：
+标题：{title}
+描述：{description}
+标签：{tags}""")
+            print("\n- 必须包含 {title}、{description}、{tags} 这些占位符")
+            print("- 明确指出评论的具体要求")
+            user_prompt = input("\n请输入用户提示词模板: ").strip()
+            if not user_prompt:
+                print("❌ 用户提示词模板不能为空")
+                return None
+            
+            # 验证用户提示词模板是否包含必要的占位符
+            required_placeholders = ['{title}', '{description}', '{tags}']
+            missing_placeholders = [p for p in required_placeholders if p not in user_prompt]
+            if missing_placeholders:
+                print(f"\n❌ 用户提示词模板缺少以下占位符: {', '.join(missing_placeholders)}")
+                return None
+            
+            print("\n=== 人格配置预览 ===")
+            print(f"名称: {name}")
+            print(f"描述: {description}")
+            print(f"系统提示词: {system_prompt}")
+            print(f"用户提示词模板: {user_prompt}")
+            
+            if input("\n确认创建这个人格配置？(y/n): ").strip().lower() != 'y':
+                print("\n已取消创建")
+                return None
+            
+            return PromptTemplate(
+                name=name,
+                description=description,
+                system_prompt=system_prompt,
+                user_prompt_template=user_prompt
+            )
+            
+        except Exception as e:
+            print(f"\n❌ 创建自定义人格失败: {str(e)}")
+            return None
+
+    def handle_generation_with_template(self, post_id, post_data, personality_template):
+        """使用指定模板处理评论生成"""
+        while True:
+            print("\n请选择生成方式:")
+            print("1. 直接生成评论")
+            print("2. 输入基本观点后生成")
+            print("q. 返回上级菜单")
+            
+            sub_choice = input("\n请选择 (1/2/q): ").strip().lower()
+            
+            if sub_choice == 'q':
+                return False
+                
+            base_idea = None
+            if sub_choice == '2':
                 base_idea = input("\n请输入您的基本观点: ").strip()
                 if not base_idea:
                     print("\n❌ 观点不能为空")
                     continue
-            elif mode == '3':
-                # 显示可用的人格
-                personalities = self.prompt_manager.get_personality_names()
-                print("\n可选择的评论人格:")
-                for idx, (key, desc) in enumerate(personalities.items(), 1):
-                    print(f"{idx}. {desc}")
-                print(f"{len(personalities) + 1}. 自定义人格")
-                
-                try:
-                    choice = int(input(f"\n请选择人格 (1-{len(personalities) + 1}): ").strip())
-                    if 1 <= choice <= len(personalities):
-                        # 获取对应的personality key
-                        personality_key = list(personalities.keys())[choice - 1]
-                        personality_template = self.prompt_manager.get_prompt_template(personality_key)
-                    elif choice == len(personalities) + 1:
-                        # 自定义人格
-                        print("\n请设置自定义人格:")
-                        name = input("人格名称: ").strip()
-                        description = input("人格描述: ").strip()
-                        system_prompt = input("系统提示词: ").strip()
-                        user_prompt = input("用户提示词模板: ").strip()
-                        
-                        personality_template = PromptTemplate(
-                            name=name,
-                            description=description,
-                            system_prompt=system_prompt,
-                            user_prompt_template=user_prompt
-                        )
-                    else:
-                        print("\n❌ 无效的选择")
-                        continue
-                except ValueError:
-                    print("\n❌ 请输入有效的数字")
-                    continue
-            elif mode != '1':
-                print("\n❌ 无效的选择，请重试")
+            elif sub_choice != '1':
+                print("\n❌ 无效的选择")
                 continue
-
+            
             comment = self.generate_comment_with_personality(
                 post_data,
                 base_idea=base_idea,
@@ -419,21 +503,21 @@ class CommentManager:
                 print("2. 重新生成")
                 print("3. 拒绝并返回")
                 
-                sub_choice = input("\n请选择 (1/2/3): ").strip()
+                action = input("\n请选择 (1/2/3): ").strip()
                 
-                if sub_choice == '1':
+                if action == '1':
                     self.add_comment(post_id, comment, base_idea)
                     print("\n✅ 已保存评论")
-                    return
-                elif sub_choice == '2':
-                    continue
-                elif sub_choice == '3':
-                    return
+                    return True  # 返回 True 表示评论已被接受
+                elif action == '2':
+                    continue  # 继续生成新的评论
+                elif action == '3':
+                    return False  # 返回 False 表示用户拒绝了评论
                 else:
-                    print("\n❌ 无效的选择，请重试")
+                    print("\n❌ 无效的选择")
             else:
                 print("\n❌ 评论生成失败")
-            return
+                return False
 
     def generate_comment_with_personality(self, post_data, base_idea=None, personality_template=None):
         """使用指定人格生成评论"""
@@ -590,45 +674,6 @@ class CommentManager:
         else:
             print("\n❌ 没有成功生成任何评论")
 
-    def generate_default_prompt(self, post_data, base_idea=None):
-        """生成默认的提示词"""
-        tags = post_data.get('tags', [])
-        if isinstance(tags, str):
-            tags = tags.split('#')
-        tags = [tag.strip() for tag in tags if tag.strip()]
-        
-        if base_idea:
-            prompt = f"""
-请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
-1. 保持原有观点的核心意思：{base_idea}
-2. 评论简短有力，不超过20字
-3. 使用网络用语，让评论更接地气
-4. 适当添加表情，展现嘲讽的意味
-
-帖子信息：
-标题：{post_data.get('title', '')}
-描述：{post_data.get('description', '')}
-标签：{' '.join(tags)}
-
-直接输出评论内容，不要有任何解释或思考过程。
-"""
-        else:
-            prompt = f"""
-请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
-1. 评论一针见血，有理有据，合理中肯
-2. 要与帖子内容强相关，有明确的观点
-3. 评论简短有力，不超过20字
-4. 使用网络用语，让评论更接地气
-5. 适当添加表情，展现嘲讽的意味
-
-帖子信息：
-标题：{post_data.get('title', '')}
-描述：{post_data.get('description', '')}
-标签：{' '.join(tags)}
-
-直接输出评论内容，不要有任何解释或思考过程。
-"""
-        return prompt
 
 def main():
     manager = CommentManager()
