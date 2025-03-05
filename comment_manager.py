@@ -5,6 +5,8 @@ import time
 import sqlite3
 from openai import OpenAI
 import random
+from prompt_manager import PromptManager, PromptTemplate
+import re
 
 
 
@@ -12,6 +14,7 @@ class CommentManager:
     def __init__(self):
         self.comments_file = "xhs_comments.json"
         self.db_path = 'download/ExploreData.db'
+        self.prompt_manager = PromptManager()
         self.load_comments()
         self.update_posts_from_db()
         self.setup_ai()
@@ -20,109 +23,16 @@ class CommentManager:
     def setup_ai(self):
         """设置AI配置"""
         os.environ["OPENAI_API_KEY"] = "your_api_key"                          #you can try this but not abuse ds: "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi" #
-        os.environ["OPENAI_BASE_URL"] =  "your_base_url"                       #ds  "https://api.siliconflow.cn/v1"                         #ds  "https://api.siliconflow.cn/v1"  gpt # "https://api.bianxie.ai/v1"
+        os.environ["OPENAI_BASE_URL"] =  "your_base_url"                       #ds  "https://api.siliconflow.cn/v1"    
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
     def generate_comment(self, post_data):
-        """使用ChatGPT生成评论"""
-        tags = post_data.get('tags', [])
-        if isinstance(tags, str):
-            tags = tags.split('#')
-        tags = [tag.strip() for tag in tags if tag.strip()]
-        
-        prompt = f"""
-请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
-1. 评论真实客观，有理有据，合理中肯
-2. 不带任何立场，从理性角度分析
-3. 评论简短有力，不超过20字
-4. 使用网络用语，让评论更接地气
-5. 适当添加表情
-帖子信息：
-标题：{post_data.get('title', '')}
-描述：{post_data.get('description', '')}
-标签：{' '.join(tags)}
-"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model="Pro/deepseek-ai/DeepSeek-R1",
-                messages=[
-                    {"role": "system", "content": "你是一个极具社会责任感的共产党员，喜欢分析社会现象，弘扬社会注意价值观。请直接输出评论内容，不要解释思考过程。"},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=2048,
-                temperature=0.7
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"生成评论失败: {str(e)}")
-            return None
+        """使用ChatGPT生成评论 - 已弃用，请使用 generate_comment_with_personality"""
+        return self.generate_comment_with_personality(post_data)
 
     def generate_comment_with_prompt(self, post_data, base_idea=None):
-        """使用ChatGPT生成评论，可选择是否包含基本观点"""
-        tags = post_data.get('tags', [])
-        if isinstance(tags, str):
-            tags = tags.split('#')
-        tags = [tag.strip() for tag in tags if tag.strip()]
-        
-        if base_idea:
-            prompt = f"""
-请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
-1. 保持原有观点的核心意思：{base_idea}
-2. 评论简短有力，真实客观，不超过20字
-3. 使用网络用语，让评论更接地气
-4. 适当带表情
-
-帖子信息：
-标题：{post_data.get('title', '')}
-描述：{post_data.get('description', '')}
-标签：{' '.join(tags)}
-
-直接输出评论内容，不要有任何解释或思考过程。
-"""
-        else:
-            prompt = f"""
-请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
-1. 评论真实客观，有理有据，合理中肯
-2. 不带任何立场，从理性角度分析
-3. 评论简短有力，不超过20字
-4. 适当添加表情
-
-帖子信息：
-标题：{post_data.get('title', '')}
-描述：{post_data.get('description', '')}
-标签：{' '.join(tags)}
-
-直接输出评论内容，不要有任何解释或思考过程。
-"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model="Pro/deepseek-ai/DeepSeek-R1",
-                messages=[
-                    {"role": "system", "content": "你是一个极具社会责任感的共产党员，喜欢分析社会现象，弘扬社会注意价值观。请直接输出评论内容，不要解释思考过程。"},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=2048,
-                temperature=0.7
-            )
-            
-            # 获取生成的内容
-            comment = response.choices[0].message.content.strip()
-            
-            # 如果内容包含思维链过程，尝试提取最后一句作为评论
-            if len(comment.split('\n')) > 1 or '。' in comment:
-                # 按换行符分割
-                lines = [line.strip() for line in comment.split('\n') if line.strip()]
-                # 按句号分割最后一段
-                sentences = [s.strip() for s in lines[-1].split('。') if s.strip()]
-                # 取最后一句作为评论
-                comment = sentences[-1]
-            
-            return comment
-        except Exception as e:
-            print(f"生成评论失败: {str(e)}")
-            return None
+        """使用ChatGPT生成评论 - 已弃用，请使用 generate_comment_with_personality"""
+        return self.generate_comment_with_personality(post_data, base_idea=base_idea)
 
     def display_menu(self):
         """显示主菜单"""
@@ -208,7 +118,7 @@ class CommentManager:
                         break
                     elif choice == '1':
                         while True:
-                            comment = self.generate_comment(post_data)
+                            comment = self.generate_comment_with_personality(post_data)
                             if comment:
                                 print(f"\n生成的评论: {comment}")
                                 print("\n请选择操作:")
@@ -442,32 +352,66 @@ class CommentManager:
             print("\n请选择评论生成模式:")
             print("1. 直接生成评论")
             print("2. 输入基本观点后生成")
-            
-            # 如果存在上一次使用的基本观点，显示额外选项
-            last_base_idea = post_data.get('last_base_idea')
-            if last_base_idea:
-                print(f"3. 使用上次的基本观点: \"{last_base_idea}\"")
-            
+            print("3. 选择评论人格")
             print("q. 返回上级菜单")
             
-            mode = input("\n请选择模式 (1/2" + ("/3" if last_base_idea else "") + "/q): ").strip().lower()
+            mode = input("\n请选择模式 (1/2/3/q): ").strip().lower()
             
             if mode == 'q':
                 return
             
             base_idea = None
+            personality_template = None
+            
             if mode == '2':
                 base_idea = input("\n请输入您的基本观点: ").strip()
                 if not base_idea:
                     print("\n❌ 观点不能为空")
                     continue
-            elif mode == '3' and last_base_idea:
-                base_idea = last_base_idea
+            elif mode == '3':
+                # 显示可用的人格
+                personalities = self.prompt_manager.get_personality_names()
+                print("\n可选择的评论人格:")
+                for idx, (key, desc) in enumerate(personalities.items(), 1):
+                    print(f"{idx}. {desc}")
+                print(f"{len(personalities) + 1}. 自定义人格")
+                
+                try:
+                    choice = int(input(f"\n请选择人格 (1-{len(personalities) + 1}): ").strip())
+                    if 1 <= choice <= len(personalities):
+                        # 获取对应的personality key
+                        personality_key = list(personalities.keys())[choice - 1]
+                        personality_template = self.prompt_manager.get_prompt_template(personality_key)
+                    elif choice == len(personalities) + 1:
+                        # 自定义人格
+                        print("\n请设置自定义人格:")
+                        name = input("人格名称: ").strip()
+                        description = input("人格描述: ").strip()
+                        system_prompt = input("系统提示词: ").strip()
+                        user_prompt = input("用户提示词模板: ").strip()
+                        
+                        personality_template = PromptTemplate(
+                            name=name,
+                            description=description,
+                            system_prompt=system_prompt,
+                            user_prompt_template=user_prompt
+                        )
+                    else:
+                        print("\n❌ 无效的选择")
+                        continue
+                except ValueError:
+                    print("\n❌ 请输入有效的数字")
+                    continue
             elif mode != '1':
                 print("\n❌ 无效的选择，请重试")
                 continue
 
-            comment = self.generate_comment_with_prompt(post_data, base_idea)
+            comment = self.generate_comment_with_personality(
+                post_data,
+                base_idea=base_idea,
+                personality_template=personality_template
+            )
+            
             if comment:
                 print(f"\n生成的评论: {comment}")
                 print("\n请选择操作:")
@@ -478,7 +422,7 @@ class CommentManager:
                 sub_choice = input("\n请选择 (1/2/3): ").strip()
                 
                 if sub_choice == '1':
-                    self.add_comment(post_id, comment, base_idea)  # 保存评论和基本观点
+                    self.add_comment(post_id, comment, base_idea)
                     print("\n✅ 已保存评论")
                     return
                 elif sub_choice == '2':
@@ -490,6 +434,68 @@ class CommentManager:
             else:
                 print("\n❌ 评论生成失败")
             return
+
+    def generate_comment_with_personality(self, post_data, base_idea=None, personality_template=None):
+        """使用指定人格生成评论"""
+        tags = post_data.get('tags', [])
+        if isinstance(tags, str):
+            tags = tags.split('#')
+        tags = [tag.strip() for tag in tags if tag.strip()]
+        
+        if personality_template:
+            system_prompt = personality_template.system_prompt
+            user_prompt = personality_template.format_prompt(
+                title=post_data.get('title', ''),
+                description=post_data.get('description', ''),
+                tags=' '.join(tags),
+                base_idea=base_idea
+            )
+        else:
+            # 使用默认的理中客人格
+            personality_template = self.prompt_manager.get_prompt_template('rational')
+            if not personality_template:
+                print("❌ 无法加载理中客人格模板")
+                return None
+            system_prompt = personality_template.system_prompt
+            user_prompt = personality_template.format_prompt(
+                title=post_data.get('title', ''),
+                description=post_data.get('description', ''),
+                tags=' '.join(tags),
+                base_idea=base_idea
+            )
+
+        try:
+            response = self.client.chat.completions.create(
+                model="Pro/deepseek-ai/DeepSeek-R1",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=2048,  # 增加 token 限制以获取完整输出
+                temperature=0.7
+            )
+            
+            comment = response.choices[0].message.content.strip()
+            
+            # 如果输出超过100个字符，认为是思维链输出
+            if len(comment) > 100:
+                # 按换行符分割，获取非空行
+                lines = [line.strip() for line in comment.split('\n') if line.strip()]
+                if lines:
+                    # 取最后一行
+                    last_line = lines[-1]
+                    # 如果最后一行包含句号，取最后一句完整的话
+                    if '。' in last_line:
+                        sentences = [s.strip() for s in last_line.split('。') if s.strip()]
+                        comment = sentences[-1]
+                    else:
+                        comment = last_line
+        
+            return comment
+            
+        except Exception as e:
+            print(f"生成评论失败: {str(e)}")
+            return None
 
     def update_posts_from_db(self):
         """从数据库更新帖子信息"""
@@ -543,7 +549,7 @@ class CommentManager:
             print(f"\n❌ 更新帖子时出错: {str(e)}")
 
     def auto_generate_comments(self):
-        """自动为未生成评论的帖子生成评论"""
+        """自动为未生成评论的帖子生成评论，使用理中客人格"""
         pending_posts = {
             post_id: post_data 
             for post_id, post_data in self.data["posts"].items()
@@ -554,13 +560,19 @@ class CommentManager:
             return
         
         print(f"\n发现 {len(pending_posts)} 条未生成评论的帖子")
-        print("开始自动生成评论...")
+        print("开始自动生成评论（使用理中客人格）...")
+        
+        # 获取理中客人格模板
+        rational_template = self.prompt_manager.get_prompt_template('rational')
+        if not rational_template:
+            print("❌ 无法加载理中客人格模板，自动生成评论失败")
+            return
         
         success_count = 0
         for post_id, post_data in pending_posts.items():
             print(f"\n处理帖子: {post_data['title']}")
             try:
-                comment = self.generate_comment(post_data)
+                comment = self.generate_comment_with_personality(post_data, personality_template=rational_template)
                 if comment:
                     self.add_comment(post_id, comment)
                     success_count += 1
@@ -577,6 +589,46 @@ class CommentManager:
             print(f"\n✨ 成功为 {success_count} 条帖子生成了评论")
         else:
             print("\n❌ 没有成功生成任何评论")
+
+    def generate_default_prompt(self, post_data, base_idea=None):
+        """生成默认的提示词"""
+        tags = post_data.get('tags', [])
+        if isinstance(tags, str):
+            tags = tags.split('#')
+        tags = [tag.strip() for tag in tags if tag.strip()]
+        
+        if base_idea:
+            prompt = f"""
+请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+1. 保持原有观点的核心意思：{base_idea}
+2. 评论简短有力，不超过20字
+3. 使用网络用语，让评论更接地气
+4. 适当添加表情，展现嘲讽的意味
+
+帖子信息：
+标题：{post_data.get('title', '')}
+描述：{post_data.get('description', '')}
+标签：{' '.join(tags)}
+
+直接输出评论内容，不要有任何解释或思考过程。
+"""
+        else:
+            prompt = f"""
+请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+1. 评论一针见血，有理有据，合理中肯
+2. 要与帖子内容强相关，有明确的观点
+3. 评论简短有力，不超过20字
+4. 使用网络用语，让评论更接地气
+5. 适当添加表情，展现嘲讽的意味
+
+帖子信息：
+标题：{post_data.get('title', '')}
+描述：{post_data.get('description', '')}
+标签：{' '.join(tags)}
+
+直接输出评论内容，不要有任何解释或思考过程。
+"""
+        return prompt
 
 def main():
     manager = CommentManager()
