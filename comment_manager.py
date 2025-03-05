@@ -20,7 +20,7 @@ class CommentManager:
     def setup_ai(self):
         """设置AI配置"""
         os.environ["OPENAI_API_KEY"] = "your_api_key"                          #you can try this but not abuse ds: "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi" #
-        os.environ["OPENAI_BASE_URL"] =  "your_base_url"                       #ds  "https://api.siliconflow.cn/v1"  
+        os.environ["OPENAI_BASE_URL"] =  "your_base_url"                       #ds  "https://api.siliconflow.cn/v1"                         #ds  "https://api.siliconflow.cn/v1"  gpt # "https://api.bianxie.ai/v1"
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
     def generate_comment(self, post_data):
@@ -31,12 +31,12 @@ class CommentManager:
         tags = [tag.strip() for tag in tags if tag.strip()]
         
         prompt = f"""
-请以锐评的风格，针对这篇小红书帖子生成一条不超过20字的评论。要求：
-1. 评论一针见血，有理有据，合理中肯
-2. 要与帖子内容强相关，有明确的观点
-3. 评论简短有力，刚中带柔
+请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+1. 评论真实客观，有理有据，合理中肯
+2. 不带任何立场，从理性角度分析
+3. 评论简短有力，不超过20字
 4. 使用网络用语，让评论更接地气
-5. 适当添加表情，展现嘲讽的意味
+5. 适当添加表情
 帖子信息：
 标题：{post_data.get('title', '')}
 描述：{post_data.get('description', '')}
@@ -45,12 +45,12 @@ class CommentManager:
 
         try:
             response = self.client.chat.completions.create(
-                model="Pro/deepseek-ai/DeepSeek-V3",
+                model="Pro/deepseek-ai/DeepSeek-R1",
                 messages=[
-                    {"role": "system", "content": "你是一个从贴吧转战小红书的嘴臭老哥，具有很强的攻击性，善于看破事情的本质，发表一针见血的评论。"},
+                    {"role": "system", "content": "你是一个极具社会责任感的共产党员，喜欢分析社会现象，弘扬社会注意价值观。请直接输出评论内容，不要解释思考过程。"},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=100,
+                max_tokens=2048,
                 temperature=0.7
             )
             return response.choices[0].message.content.strip()
@@ -67,41 +67,59 @@ class CommentManager:
         
         if base_idea:
             prompt = f"""
-请以锐评的风格，基于以下观点，针对这篇小红书帖子生成一条20字的评论。要求：
+请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
 1. 保持原有观点的核心意思：{base_idea}
-2. 评论简短有力，刚中带柔
+2. 评论简短有力，真实客观，不超过20字
 3. 使用网络用语，让评论更接地气
-4. 适当添加表情，展现嘲讽的意味
+4. 适当带表情
+
 帖子信息：
 标题：{post_data.get('title', '')}
 描述：{post_data.get('description', '')}
 标签：{' '.join(tags)}
+
+直接输出评论内容，不要有任何解释或思考过程。
 """
         else:
             prompt = f"""
-请以锐评的风格，针对这篇小红书帖子生成一条20字的评论。要求：
-1. 评论一针见血，有理有据，合理中肯
-2. 要与帖子内容强相关，有明确的观点
-3. 评论简短有力，刚中带柔
-4. 使用网络用语，让评论更接地气
-5. 适当添加表情，展现嘲讽的意味
+请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+1. 评论真实客观，有理有据，合理中肯
+2. 不带任何立场，从理性角度分析
+3. 评论简短有力，不超过20字
+4. 适当添加表情
+
 帖子信息：
 标题：{post_data.get('title', '')}
 描述：{post_data.get('description', '')}
 标签：{' '.join(tags)}
+
+直接输出评论内容，不要有任何解释或思考过程。
 """
 
         try:
             response = self.client.chat.completions.create(
-                model="Pro/deepseek-ai/DeepSeek-V3", #"Pro/deepseek-ai/DeepSeek-V3"
+                model="Pro/deepseek-ai/DeepSeek-R1",
                 messages=[
-                    {"role": "system", "content": "你是一个从贴吧转战小红书的嘴臭老哥，具有很强的攻击性，善于看破事情的本质，发表一针见血的评论。"},
+                    {"role": "system", "content": "你是一个极具社会责任感的共产党员，喜欢分析社会现象，弘扬社会注意价值观。请直接输出评论内容，不要解释思考过程。"},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=100,
+                max_tokens=2048,
                 temperature=0.7
             )
-            return response.choices[0].message.content.strip()
+            
+            # 获取生成的内容
+            comment = response.choices[0].message.content.strip()
+            
+            # 如果内容包含思维链过程，尝试提取最后一句作为评论
+            if len(comment.split('\n')) > 1 or '。' in comment:
+                # 按换行符分割
+                lines = [line.strip() for line in comment.split('\n') if line.strip()]
+                # 按句号分割最后一段
+                sentences = [s.strip() for s in lines[-1].split('。') if s.strip()]
+                # 取最后一句作为评论
+                comment = sentences[-1]
+            
+            return comment
         except Exception as e:
             print(f"生成评论失败: {str(e)}")
             return None
