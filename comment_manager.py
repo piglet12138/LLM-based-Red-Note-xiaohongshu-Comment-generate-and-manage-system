@@ -22,7 +22,7 @@ class CommentManager:
 
     def setup_ai(self):
         """设置AI配置"""
-        os.environ["OPENAI_API_KEY"] = "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi"   #ds: "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi" # gpt "sk-mTLkf5SuDNKW2B1D5xQbDljybrG37LVxVQyIDwTz1io9l1iX"
+        os.environ["OPENAI_API_KEY"] = "sk-kidmbamryzcwsvgtlilqhmkswhztfbkqvwrmzldoyzxrsqxr"   #ds: "sk-saoyuxaudkkvxnqyfeoonpagqrnoqomyazphdbzqaraahdwi" # gpt "sk-mTLkf5SuDNKW2B1D5xQbDljybrG37LVxVQyIDwTz1io9l1iX"
         os.environ["OPENAI_BASE_URL"] =  "https://api.siliconflow.cn/v1"                       #ds  "https://api.siliconflow.cn/v1"  gpt # "https://api.bianxie.ai/v1"
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -267,16 +267,37 @@ class CommentManager:
             }
             self.save_comments()
 
-    def add_comment(self, post_id, comment, base_idea=None):
-        """添加评论，可选择保存基本观点"""
+    def add_comment(self, post_id, comment_data, base_idea=None):
+        """添加评论到帖子"""
         if post_id in self.data["posts"]:
-            self.data["posts"][post_id].update({
-                "comment": comment,
-                "is_generated": True,
-                "generated_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "last_base_idea": base_idea  # 保存基本观点
-            })
+            if isinstance(comment_data, dict):
+                comments = comment_data.get('comments', [])
+                raw_output = comment_data.get('raw_output', '')
+                
+                self.data["posts"][post_id].update({
+                    "comment": " || ".join(comments) if comments else None,
+                    "raw_output": raw_output,
+                    "is_generated": True,
+                    "generated_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "is_sent": False,
+                    "sent_time": None,
+                    "last_base_idea": base_idea
+                })
+            else:
+                # 向后兼容：处理直接传入字符串的情况
+                self.data["posts"][post_id].update({
+                    "comment": comment_data,
+                    "raw_output": comment_data,
+                    "is_generated": True,
+                    "generated_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "is_sent": False,
+                    "sent_time": None,
+                    "last_base_idea": base_idea
+                })
+            
             self.save_comments()
+            return True
+        return False
 
     def mark_comment_sent(self, post_id):
         """标记评论已发送"""
@@ -355,9 +376,10 @@ class CommentManager:
             for idx, (key, desc) in enumerate(personalities.items(), 1):
                 print(f"{idx}. {desc}")
             print(f"{len(personalities) + 1}. 自定义人格")
+            print(f"{len(personalities) + 2}. 自动选择人格")  # 新增选项
             print("q. 返回上级菜单")
             
-            choice = input(f"\n请选择 (1-{len(personalities) + 1}/q): ").strip().lower()
+            choice = input(f"\n请选择 (1-{len(personalities) + 2}/q): ").strip().lower()
             
             if choice == 'q':
                 return
@@ -369,19 +391,30 @@ class CommentManager:
                     personality_key = list(personalities.keys())[choice_num - 1]
                     personality_template = self.prompt_manager.get_prompt_template(personality_key)
                     if self.handle_generation_with_template(post_id, post_data, personality_template):
-                        return  # 如果评论被接受，直接返回上级菜单
+                        return
                     
                 elif choice_num == len(personalities) + 1:
                     # 自定义人格
                     custom_template = self.create_custom_personality()
                     if custom_template:
                         if self.handle_generation_with_template(post_id, post_data, custom_template):
-                            # 询问是否保存自定义人格
                             if input("\n是否保存这个人格配置？(y/n): ").strip().lower() == 'y':
                                 name = input("请为这个人格配置起一个唯一的标识符(英文): ").strip()
                                 self.prompt_manager.add_personality(name, custom_template)
                                 print("\n✅ 人格配置已保存")
-                            return  # 评论被接受后直接返回上级菜单
+                            return
+                            
+                elif choice_num == len(personalities) + 2:
+                    # 自动选择人格
+                    print("\n正在分析帖子内容，自动选择合适的人格...")
+                    personality_template = self.auto_select_personality(post_data)
+                    if personality_template:
+                        if self.handle_generation_with_template(post_id, post_data, personality_template):
+                            return
+                    else:
+                        print("\n❌ 自动选择人格失败，请手动选择")
+                        continue
+                    
                 else:
                     print("\n❌ 无效的选择")
                     continue
@@ -490,14 +523,17 @@ class CommentManager:
                 print("\n❌ 无效的选择")
                 continue
             
-            comment = self.generate_comment_with_personality(
+            result = self.generate_comment_with_personality(
                 post_data,
                 base_idea=base_idea,
                 personality_template=personality_template
             )
             
-            if comment:
-                print(f"\n生成的评论: {comment}")
+            if result and 'comments' in result:
+                print("\n生成的评论:")
+                for idx, comment in enumerate(result['comments'], 1):
+                    print(f"{idx}. {comment}")
+                
                 print("\n请选择操作:")
                 print("1. 接受这条评论")
                 print("2. 重新生成")
@@ -506,13 +542,13 @@ class CommentManager:
                 action = input("\n请选择 (1/2/3): ").strip()
                 
                 if action == '1':
-                    self.add_comment(post_id, comment, base_idea)
+                    self.add_comment(post_id, result)
                     print("\n✅ 已保存评论")
-                    return True  # 返回 True 表示评论已被接受
+                    return True
                 elif action == '2':
-                    continue  # 继续生成新的评论
+                    continue
                 elif action == '3':
-                    return False  # 返回 False 表示用户拒绝了评论
+                    return False
                 else:
                     print("\n❌ 无效的选择")
             else:
@@ -521,26 +557,29 @@ class CommentManager:
 
     def generate_comment_with_personality(self, post_data, base_idea=None, personality_template=None):
         """使用指定人格生成评论"""
-        tags = post_data.get('tags', [])
-        if isinstance(tags, str):
-            tags = tags.split('#')
-        tags = [tag.strip() for tag in tags if tag.strip()]
-        
-        if personality_template:
-            system_prompt = personality_template.system_prompt
-            user_prompt = personality_template.format_prompt(
-                title=post_data.get('title', ''),
-                description=post_data.get('description', ''),
-                tags=' '.join(tags),
-                base_idea=base_idea
-            )
-        else:
-            # 使用默认的理中客人格
-            personality_template = self.prompt_manager.get_prompt_template('rational')
+        try:
+            # 处理标签
+            tags = post_data.get('tags', [])
+            if isinstance(tags, str):
+                tags = tags.strip('#').split('#')
+            tags = [tag.strip() for tag in tags if tag.strip()]
+            
+            # 获取人格模板
             if not personality_template:
-                print("❌ 无法加载理中客人格模板")
-                return None
-            system_prompt = personality_template.system_prompt
+                personality_template = self.prompt_manager.get_prompt_template('rational')
+                if not personality_template:
+                    print("❌ 无法加载默认人格模板")
+                    return None
+
+            # 准备提示词
+            system_prompt = (
+                f"{personality_template.system_prompt}\n"
+                "请生成3条不同风格的评论，必须按以下格式输出（包括大括号）：\n"
+                "{1.第一条评论\n"
+                "2.第二条评论\n"
+                "3.第三条评论}"
+            )
+            
             user_prompt = personality_template.format_prompt(
                 title=post_data.get('title', ''),
                 description=post_data.get('description', ''),
@@ -548,37 +587,37 @@ class CommentManager:
                 base_idea=base_idea
             )
 
-        try:
+            # 生成评论
             response = self.client.chat.completions.create(
-                model="Pro/deepseek-ai/DeepSeek-R1",
+                model="Pro/deepseek-ai/DeepSeek-V3",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=2048,  # 增加 token 限制以获取完整输出
+                max_tokens=2048,
                 temperature=0.7
             )
             
-            comment = response.choices[0].message.content.strip()
+            raw_output = response.choices[0].message.content.strip()
             
-            # 如果输出超过100个字符，认为是思维链输出
-            if len(comment) > 100:
-                # 按换行符分割，获取非空行
-                lines = [line.strip() for line in comment.split('\n') if line.strip()]
-                if lines:
-                    # 取最后一行
-                    last_line = lines[-1]
-                    # 如果最后一行包含句号，取最后一句完整的话
-                    if '。' in last_line:
-                        sentences = [s.strip() for s in last_line.split('。') if s.strip()]
-                        comment = sentences[-1]
-                    else:
-                        comment = last_line
-        
-            return comment
+            # 提取评论
+            match = re.search(r'\{([\s\S]*?)\}', raw_output)
+            if match:
+                content = match.group(1).strip()
+                comments = re.findall(r'\d+\.(.*?)(?=\d+\.|$)', content, re.DOTALL)
+                comments = [c.strip() for c in comments if c.strip()]
+                
+                if comments:
+                    return {
+                        'comments': comments,
+                        'raw_output': raw_output
+                    }
+            
+            print("❌ 评论生成失败")
+            return None
             
         except Exception as e:
-            print(f"生成评论失败: {str(e)}")
+            print(f"❌ 评论生成失败: {str(e)}")
             return None
 
     def update_posts_from_db(self):
@@ -633,7 +672,7 @@ class CommentManager:
             print(f"\n❌ 更新帖子时出错: {str(e)}")
 
     def auto_generate_comments(self):
-        """自动为未生成评论的帖子生成评论，使用理中客人格"""
+        """自动为未生成评论的帖子生成评论，使用自动选择的人格"""
         pending_posts = {
             post_id: post_data 
             for post_id, post_data in self.data["posts"].items()
@@ -644,23 +683,23 @@ class CommentManager:
             return
         
         print(f"\n发现 {len(pending_posts)} 条未生成评论的帖子")
-        print("开始自动生成评论（使用理中客人格）...")
-        
-        # 获取理中客人格模板
-        rational_template = self.prompt_manager.get_prompt_template('rational')
-        if not rational_template:
-            print("❌ 无法加载理中客人格模板，自动生成评论失败")
-            return
+        print("开始自动生成评论...")
         
         success_count = 0
         for post_id, post_data in pending_posts.items():
             print(f"\n处理帖子: {post_data['title']}")
             try:
-                comment = self.generate_comment_with_personality(post_data, personality_template=rational_template)
+                # 自动选择合适的人格
+                personality_template = self.auto_select_personality(post_data)
+                if not personality_template:
+                    print(f"❌ 帖子 {post_id} 自动选择人格失败，跳过处理")
+                    continue
+                    
+                comment = self.generate_comment_with_personality(post_data, personality_template=personality_template)
                 if comment:
                     self.add_comment(post_id, comment)
                     success_count += 1
-                    print(f"✅ 已生成评论: {comment}")
+                    print(f"✅ 已生成评论")
                 else:
                     print(f"❌ 帖子 {post_id} 评论生成失败")
             except Exception as e:
@@ -673,6 +712,66 @@ class CommentManager:
             print(f"\n✨ 成功为 {success_count} 条帖子生成了评论")
         else:
             print("\n❌ 没有成功生成任何评论")
+
+    def auto_select_personality(self, post_data):
+        """根据帖子内容自动选择合适的人格"""
+        try:
+            # 获取所有人格信息
+            personalities = self.prompt_manager.get_personalities()
+            if not personalities:
+                print("❌ 没有找到可用的人格配置")
+                return None
+
+            # 构建人格信息列表，简化信息
+            personality_info = "\n".join([
+                f"- {key}: {template.name} ({template.description})"
+                for key, template in personalities.items()
+            ])
+
+            # 构建系统提示词，更明确的指令
+            system_prompt = """你是一个评论人格选择专家。你的任务是从给定的人格列表中选择一个最适合评论指定帖子的人格。
+规则：
+1. 只返回人格的key（如：rational、tieba等）
+2. 不要解释原因
+3. 必须从提供的人格列表中选择"""
+
+            # 构建用户提示词，更简洁的格式
+            user_prompt = f"""帖子内容：
+标题：{post_data.get('title', '')}
+描述：{post_data.get('description', '')}
+标签：{' '.join(post_data.get('tags', []))}
+
+可选人格列表：
+{personality_info}
+
+直接返回选中的人格key："""
+
+            print("\n正在分析帖子内容...")
+            
+            response = self.client.chat.completions.create(
+                model="Pro/deepseek-ai/DeepSeek-V3",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=10,
+                temperature=0.1
+            )
+            
+            selected_key = response.choices[0].message.content.strip().lower()
+            
+            # 验证返回的key是否有效
+            if selected_key in personalities:
+                print(f"\n✨ 已自动选择人格：{personalities[selected_key].name}")
+                print(f"描述：{personalities[selected_key].description}")
+                return personalities[selected_key]
+            
+            print("\n❌ 自动选择人格失败")
+            return None
+            
+        except Exception as e:
+            print("\n❌ 自动选择人格失败")
+            return None
 
 
 def main():

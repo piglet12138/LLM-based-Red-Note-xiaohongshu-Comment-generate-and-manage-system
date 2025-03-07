@@ -10,13 +10,13 @@ class PromptTemplate:
         self.user_prompt_template = user_prompt_template
 
     def format_prompt(self, title: str, description: str, tags: str, base_idea: Optional[str] = None) -> str:
-        """格式化提示词"""
-        prompt = self.user_prompt_template.format(
-            title=title,
-            description=description,
-            tags=tags
-        )
+        """格式化提示词，保持原始模板格式"""
+        # 直接使用模板中的格式，替换变量
+        prompt = self.user_prompt_template.replace("{title}", title)
+        prompt = prompt.replace("{description}", description)
+        prompt = prompt.replace("{tags}", tags)
         
+        # 如果有基础观点，添加到提示词中
         if base_idea:
             prompt = f"请基于以下观点：{base_idea}\n\n" + prompt
             
@@ -51,13 +51,17 @@ class PromptManager:
                         except KeyError as e:
                             print(f"❌ 人格配置 '{key}' 缺少必要字段: {e}")
                             continue
+                else:
+                    print("❌ JSON文件格式不正确，缺少 'personalities' 字段")
+            else:
+                print(f"❌ 配置文件不存在: {self.prompts_file}")
             
             # 如果没有任何人格配置（文件不存在或为空），加载默认配置
             if not self.personalities:
                 self._create_default_prompts()
                 
-        except json.JSONDecodeError:
-            print("❌ JSON文件格式错误，将重新创建默认配置")
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON文件格式错误: {str(e)}")
             self._create_default_prompts()
         except Exception as e:
             print(f"❌ 加载提示词配置失败: {str(e)}")
@@ -71,10 +75,10 @@ class PromptManager:
                     "name": "理中客",
                     "description": "基于事实，客观分析，有理有据",
                     "system_prompt": "你是一个理性客观的评论员，善于分析事物的本质，提供有理有据的见解。",
-                    "user_prompt_template": """请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+                    "user_prompt_template": """请生成3条不同风格的评论，每条评论都要符合以下要求：
 1. 评论客观理性，有理有据
 2. 从多个角度分析问题
-3. 评论可以稍长，但不超过50字
+3. 每条评论不超过50字
 4. 使用专业但通俗的语言
 
 帖子信息：
@@ -86,10 +90,10 @@ class PromptManager:
                     "name": "贴吧老哥",
                     "description": "攻击力强，看不惯就骂",
                     "system_prompt": "你是一个从贴吧转战小红书的嘴臭老哥，具有很强的攻击性，善于看破事情的本质，发表一针见血的评论。",
-                    "user_prompt_template": """请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+                    "user_prompt_template": """请生成3条不同风格的评论，每条评论都要符合以下要求：
 1. 评论一针见血，直接开喷
 2. 使用贴吧特色网络用语
-3. 评论简短有力，不超过20字
+3. 每条评论不超过20字
 4. 适当添加表情，展现嘲讽的意味
 
 帖子信息：
@@ -101,10 +105,10 @@ class PromptManager:
                     "name": "小粉红",
                     "description": "具有社会责任感，传播正能量",
                     "system_prompt": "你是一个极具社会责任感的知识分子，喜欢分析社会现象，传播正能量，弘扬社会主义核心价值观。",
-                    "user_prompt_template": """请直接输出一条针对这篇小红书帖子的评论，不要解释思考过程。要求：
+                    "user_prompt_template": """请生成3条不同风格的评论，每条评论都要符合以下要求：
 1. 评论积极向上，传播正能量
 2. 符合社会主义核心价值观
-3. 评论温和友善，不超过30字
+3. 每条评论不超过30字
 4. 适当添加积极正面的表情
 
 帖子信息：
@@ -181,4 +185,10 @@ class PromptManager:
         except Exception as e:
             print(f"❌ 保存人格配置失败: {str(e)}")
             # 如果发生错误，重新加载配置确保内存中的数据正确
-            self.load_prompts() 
+            self.load_prompts()
+
+    def get_personalities(self) -> Dict[str, PromptTemplate]:
+        """获取所有人格配置"""
+        if not hasattr(self, 'personalities'):
+            self.load_prompts()
+        return self.personalities 
