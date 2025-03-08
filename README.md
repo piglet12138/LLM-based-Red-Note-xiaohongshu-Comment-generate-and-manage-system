@@ -16,7 +16,9 @@
 ![image](https://github.com/user-attachments/assets/1793b8ba-f665-4e88-ab8f-d135653cb654)
 ![image](https://github.com/user-attachments/assets/a43c317f-223d-4103-aa8a-687cb52ff3c0)
 相关功能可自行探索，目前还不支持读取图片
+
 开发者声明
+
 数据安全：所有输入内容仅暂存于本地内存，关闭程序后自动清除
 
 禁止行为清单：
